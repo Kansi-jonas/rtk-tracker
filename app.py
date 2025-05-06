@@ -6,16 +6,13 @@ import os
 
 app = Flask(__name__)
 
-# === KONFIGURATION ===
-CSV_PATH = "apollo-contacts-export.csv"  # relativer Pfad für Render
+CSV_PATH = "apollo-contacts-export.csv"
 BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/rxpcf8a0u3undrgc/crm.lead.add.json"
 REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
 PHASE_ID = "UC_MID1CI"  # Mail Kampagne
 
-# === LOGGER EINRICHTEN ===
 logging.basicConfig(filename='click_tracker.log', level=logging.INFO, format='%(asctime)s - %(message)s')
 
-# === CSV LADEN ===
 if not os.path.exists(CSV_PATH):
     raise FileNotFoundError(f"CSV-Datei nicht gefunden unter Pfad: {CSV_PATH}")
 
@@ -29,7 +26,6 @@ def track_click(lead_id):
         return redirect(REDIRECT_URL)
 
     lead = df.loc[lead_id]
-
     payload = {
         "fields": {
             "TITLE": f"Free Trial Lead: {lead.get('Company', '')}",
@@ -50,12 +46,15 @@ def track_click(lead_id):
 
     try:
         r = requests.post(BITRIX_WEBHOOK, json=payload)
+        logging.info(f"Bitrix Response: {r.status_code} - {r.text}")  # Antwort von Bitrix protokollieren
         r.raise_for_status()
         logging.info(f"Lead added to Bitrix: {lead_id} - {lead.get('Email', '')}")
     except Exception as e:
         logging.error(f"Bitrix Error for {lead_id}: {e}")
+        return f"Bitrix Error: {e}", 500  # Rückgabe eines Fehlers im Falle eines Problems
 
     return redirect(REDIRECT_URL)
 
 if __name__ == "__main__":
     app.run(debug=False, port=5000, host="0.0.0.0")
+
