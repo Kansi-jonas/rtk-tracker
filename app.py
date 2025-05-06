@@ -1,4 +1,3 @@
-# app.py
 import pandas as pd
 import requests
 from flask import Flask, redirect, request
@@ -7,23 +6,20 @@ import os
 
 app = Flask(__name__)
 
-# === KONSTANTEN ===
 CSV_PATH = "apollo-contacts-export.csv"
 BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/hno2rrrti0b3z7w6/crm.lead.add.json"
 REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
 PHASE_ID = "UC_MID1CI"
 CREATED_TRACK_FILE = "created_leads.txt"
 
-# === CSV laden und Index bereinigen ===
+# CSV vorbereiten
 df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
 df["Apollo Contact Id"] = df["Apollo Contact Id"].str.strip()
 df.set_index("Apollo Contact Id", inplace=True)
 
-# === Helferfunktion für saubere Felder ===
 def safe_field(value):
     return value.strip() if isinstance(value, str) and value.strip() else None
 
-# === Route ===
 @app.route("/free-trial/<lead_id>")
 def track_click(lead_id):
     lead_id = lead_id.strip()
@@ -33,38 +29,27 @@ def track_click(lead_id):
         return "", 204
 
     if lead_id not in df.index:
-        print(f"❌ Lead ID {lead_id} nicht in CSV gefunden.")
+        print(f"❌ Lead ID {lead_id} nicht gefunden.")
         return redirect(REDIRECT_URL)
 
-    # Duplikatprüfung
     if os.path.exists(CREATED_TRACK_FILE):
         with open(CREATED_TRACK_FILE, "r") as f:
             if lead_id in f.read().splitlines():
-                print(f"⚠️ Lead {lead_id} bereits angelegt – überspringe.")
+                print(f"⚠️ Lead {lead_id} schon erstellt – überspringe.")
                 return redirect(REDIRECT_URL)
 
     lead = df.loc[lead_id]
+
+    email = safe_field(lead.get("Email"))
+    phone = safe_field(lead.get("Corporate Phone"))
 
     fields = {
         "TITLE": f"Free Trial Lead: {safe_field(lead.get('Company'))}",
         "NAME": safe_field(lead.get("First Name")),
         "LAST_NAME": safe_field(lead.get("Last Name")),
-        "EMAIL": [{"VALUE": safe_field(lead.get("Email")), "VALUE_TYPE": "WORK"}] if safe_field(lead.get("Email")) else [],
-        "PHONE": [
-            {"VALUE": safe_field(
-                lead.get("Corporate Phone") or
-                lead.get("Work Direct Phone") or
-                lead.get("Mobile Phone")
-            ), "VALUE_TYPE": "WORK"}
-        ] if safe_field(
-            lead.get("Corporate Phone") or
-            lead.get("Work Direct Phone") or
-            lead.get("Mobile Phone")
-        ) else [],
+        "EMAIL": [{"VALUE": email, "VALUE_TYPE": "WORK"}] if email else [],
+        "PHONE": [{"VALUE": phone, "VALUE_TYPE": "WORK"}] if phone else [],
         "COMPANY_TITLE": safe_field(lead.get("Company")),
-        "POST": safe_field(lead.get("Title")),  # Berufsbezeichnung
-        "WEB": safe_field(lead.get("Website")),
-        "IM": safe_field(lead.get("Person Linkedin Url")),
         "ADDRESS_CITY": safe_field(lead.get("City")),
         "ADDRESS_STATE": safe_field(lead.get("State")),
         "ADDRESS_COUNTRY": safe_field(lead.get("Country")),
@@ -76,12 +61,8 @@ def track_click(lead_id):
 
     payload = {"fields": {k: v for k, v in fields.items() if v not in [None, "", []]}}
 
-    print("📤 Sending payload to Bitrix:")
-    print(json.dumps(payload, indent=2))
-
     try:
         response = requests.post(BITRIX_WEBHOOK, json=payload)
-        print("🔄 Bitrix response:", response.text)
         response.raise_for_status()
         print(f"✅ Lead {lead_id} erfolgreich angelegt.")
 
@@ -93,7 +74,5 @@ def track_click(lead_id):
 
     return redirect(REDIRECT_URL)
 
-# === Start der App ===
 if __name__ == "__main__":
     app.run(debug=False, port=5000, host="0.0.0.0")
-
