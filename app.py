@@ -1,7 +1,5 @@
 from flask import Flask, redirect, request
 import pandas as pd
-import logging
-import os
 import requests
 
 app = Flask(__name__)
@@ -11,25 +9,16 @@ BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/rxpcf8a0u3undrgc/crm.lead.add
 REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
 PHASE_ID = "UC_MID1CI"  # Mail Kampagne
 
-logging.basicConfig(filename='click_tracker.log', level=logging.INFO, format='%(asctime)s - %(message)s')
-
-# Lade CSV
 df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
-df.set_index("Apollo Contact Id", inplace=True)
-
 
 @app.route("/free-trial/<lead_id>")
 def track_click(lead_id):
-    # Überprüfe, ob die Lead-ID in der CSV vorhanden ist
-    if lead_id not in df.index:
-        logging.warning(f"Invalid lead_id: {lead_id}")
+    if lead_id not in df['Apollo Contact Id'].values:
         return redirect(REDIRECT_URL)
 
-    # Hole den Lead-Datensatz
-    lead = df.loc[lead_id]
+    lead = df[df['Apollo Contact Id'] == lead_id].iloc[0]
 
-    # Bitrix Payload
-    payload = {
+    lead_data = {
         "fields": {
             "TITLE": f"Free Trial Lead: {lead.get('Company', '')}",
             "NAME": lead.get("First Name", ""),
@@ -48,16 +37,12 @@ def track_click(lead_id):
     }
 
     try:
-        # Sende die Anfrage an Bitrix
-        r = requests.post(BITRIX_WEBHOOK, json=payload)
-        r.raise_for_status()  # Überprüfe auf Fehler
-        logging.info(f"Lead added to Bitrix: {lead_id} - {lead.get('Email', '')}")
+        response = requests.post(BITRIX_WEBHOOK, json=lead_data)
+        response.raise_for_status()
+        return redirect(REDIRECT_URL)
     except Exception as e:
-        logging.error(f"Bitrix Error for {lead_id}: {e}")
-
-    # Weiterleitung zur Free Trial Seite
-    return redirect(REDIRECT_URL)
-
+        print(f"Error adding lead to Bitrix: {e}")
+        return redirect(REDIRECT_URL)
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000, host="0.0.0.0")
+    app.run(debug=False, port=5000, host="0.0.0.0")
