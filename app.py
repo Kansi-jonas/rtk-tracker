@@ -16,7 +16,7 @@ CREATED_TRACK_FILE = "created_leads.txt"
 
 # === CSV laden und Index bereinigen ===
 df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
-df["Apollo Contact Id"] = df["Apollo Contact Id"].str.strip()  # <- Wichtig!
+df["Apollo Contact Id"] = df["Apollo Contact Id"].str.strip()
 df.set_index("Apollo Contact Id", inplace=True)
 
 # === Helferfunktion für saubere Felder ===
@@ -26,9 +26,8 @@ def safe_field(value):
 # === Route ===
 @app.route("/free-trial/<lead_id>")
 def track_click(lead_id):
-    lead_id = lead_id.strip()  # <- Sicherstellen, dass es kein Leerzeichen enthält
+    lead_id = lead_id.strip()
 
-    # HEAD-Request ignorieren (z. B. von Link-Vorschau)
     if request.method == "HEAD":
         print(f"🔁 HEAD-Request ignoriert für {lead_id}")
         return "", 204
@@ -51,8 +50,21 @@ def track_click(lead_id):
         "NAME": safe_field(lead.get("First Name")),
         "LAST_NAME": safe_field(lead.get("Last Name")),
         "EMAIL": [{"VALUE": safe_field(lead.get("Email")), "VALUE_TYPE": "WORK"}] if safe_field(lead.get("Email")) else [],
-        "PHONE": [{"VALUE": safe_field(lead.get("Corporate Phone")), "VALUE_TYPE": "WORK"}] if safe_field(lead.get("Corporate Phone")) else [],
+        "PHONE": [
+            {"VALUE": safe_field(
+                lead.get("Corporate Phone") or
+                lead.get("Work Direct Phone") or
+                lead.get("Mobile Phone")
+            ), "VALUE_TYPE": "WORK"}
+        ] if safe_field(
+            lead.get("Corporate Phone") or
+            lead.get("Work Direct Phone") or
+            lead.get("Mobile Phone")
+        ) else [],
         "COMPANY_TITLE": safe_field(lead.get("Company")),
+        "POST": safe_field(lead.get("Title")),  # Berufsbezeichnung
+        "WEB": safe_field(lead.get("Website")),
+        "IM": safe_field(lead.get("Person Linkedin Url")),
         "ADDRESS_CITY": safe_field(lead.get("City")),
         "ADDRESS_STATE": safe_field(lead.get("State")),
         "ADDRESS_COUNTRY": safe_field(lead.get("Country")),
@@ -62,10 +74,8 @@ def track_click(lead_id):
         "UTM_SOURCE": "apollo"
     }
 
-    # Leere Felder entfernen
     payload = {"fields": {k: v for k, v in fields.items() if v not in [None, "", []]}}
 
-    # Debug-Log
     print("📤 Sending payload to Bitrix:")
     print(json.dumps(payload, indent=2))
 
@@ -75,7 +85,6 @@ def track_click(lead_id):
         response.raise_for_status()
         print(f"✅ Lead {lead_id} erfolgreich angelegt.")
 
-        # Lead-ID merken
         with open(CREATED_TRACK_FILE, "a") as f:
             f.write(f"{lead_id}\n")
 
@@ -87,3 +96,4 @@ def track_click(lead_id):
 # === Start der App ===
 if __name__ == "__main__":
     app.run(debug=False, port=5000, host="0.0.0.0")
+
