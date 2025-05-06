@@ -1,31 +1,34 @@
 from flask import Flask, redirect, request
 import pandas as pd
-import requests
 import logging
 import os
+import requests
 
 app = Flask(__name__)
 
-CSV_PATH = "apollo-contacts-export.csv"
+CSV_PATH = r"C:\Users\Jobec\OneDrive\Desktop\rtk-tracker\apollo-contacts-export.csv"
 BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/rxpcf8a0u3undrgc/crm.lead.add.json"
 REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
 PHASE_ID = "UC_MID1CI"  # Mail Kampagne
 
 logging.basicConfig(filename='click_tracker.log', level=logging.INFO, format='%(asctime)s - %(message)s')
 
-if not os.path.exists(CSV_PATH):
-    raise FileNotFoundError(f"CSV-Datei nicht gefunden unter Pfad: {CSV_PATH}")
-
+# Lade CSV
 df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
 df.set_index("Apollo Contact Id", inplace=True)
 
+
 @app.route("/free-trial/<lead_id>")
 def track_click(lead_id):
+    # Überprüfe, ob die Lead-ID in der CSV vorhanden ist
     if lead_id not in df.index:
         logging.warning(f"Invalid lead_id: {lead_id}")
         return redirect(REDIRECT_URL)
 
+    # Hole den Lead-Datensatz
     lead = df.loc[lead_id]
+
+    # Bitrix Payload
     payload = {
         "fields": {
             "TITLE": f"Free Trial Lead: {lead.get('Company', '')}",
@@ -45,16 +48,16 @@ def track_click(lead_id):
     }
 
     try:
+        # Sende die Anfrage an Bitrix
         r = requests.post(BITRIX_WEBHOOK, json=payload)
-        logging.info(f"Bitrix Response: {r.status_code} - {r.text}")  # Antwort von Bitrix protokollieren
-        r.raise_for_status()
+        r.raise_for_status()  # Überprüfe auf Fehler
         logging.info(f"Lead added to Bitrix: {lead_id} - {lead.get('Email', '')}")
     except Exception as e:
         logging.error(f"Bitrix Error for {lead_id}: {e}")
-        return f"Bitrix Error: {e}", 500  # Rückgabe eines Fehlers im Falle eines Problems
 
+    # Weiterleitung zur Free Trial Seite
     return redirect(REDIRECT_URL)
 
-if __name__ == "__main__":
-    app.run(debug=False, port=5000, host="0.0.0.0")
 
+if __name__ == "__main__":
+    app.run(debug=True, port=5000, host="0.0.0.0")
