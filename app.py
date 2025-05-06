@@ -1,16 +1,18 @@
+# app.py
 import pandas as pd
 import requests
 from flask import Flask, redirect
+import os
 
 app = Flask(__name__)
 
-# CSV Pfad und Bitrix Webhook URL
-CSV_PATH = "apollo-contacts-export.csv"  # Ersetze mit deinem tatsächlichen Pfad
-BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/hno2rrrti0b3z7w6/crm.lead.add.json
+# === KONSTANTEN ===
+CSV_PATH = "apollo-contacts-export.csv"
+BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/hno2rrrti0b3z7w6/crm.lead.add.json"
 REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
-PHASE_ID = "UC_MID1CI"  # Mail Kampagne
+PHASE_ID = "UC_MID1CI"
 
-# CSV Laden
+# === CSV EINMAL LADEN ===
 df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
 df.set_index("Apollo Contact Id", inplace=True)
 
@@ -18,24 +20,22 @@ df.set_index("Apollo Contact Id", inplace=True)
 @app.route("/free-trial/<lead_id>")
 def track_click(lead_id):
     if lead_id not in df.index:
-        print(f"Lead ID {lead_id} not found in CSV.")
+        print(f"❌ Lead ID {lead_id} not found.")
         return redirect(REDIRECT_URL)
 
-    # Lead-Daten aus DataFrame holen
-    lead = df.loc[lead_id]
+    lead = df.loc[lead_id].to_dict()
 
-    # Sicherstellen, dass wir einen sauberen Payload für die Bitrix API haben
     payload = {
         "fields": {
-            "TITLE": f"Free Trial Lead: {lead['Company']}",
-            "NAME": lead['First Name'],
-            "LAST_NAME": lead['Last Name'],
-            "EMAIL": [{"VALUE": lead['Email'], "VALUE_TYPE": "WORK"}],
-            "PHONE": [{"VALUE": lead['Corporate Phone'], "VALUE_TYPE": "WORK"}],
-            "COMPANY_TITLE": lead['Company'],
-            "ADDRESS_CITY": lead['City'],
-            "ADDRESS_STATE": lead['State'],
-            "ADDRESS_COUNTRY": lead['Country'],
+            "TITLE": f"Free Trial Lead: {lead.get('Company', '')}",
+            "NAME": lead.get("First Name", ""),
+            "LAST_NAME": lead.get("Last Name", ""),
+            "EMAIL": [{"VALUE": lead.get("Email", ""), "VALUE_TYPE": "WORK"}],
+            "PHONE": [{"VALUE": lead.get("Corporate Phone", ""), "VALUE_TYPE": "WORK"}],
+            "COMPANY_TITLE": lead.get("Company", ""),
+            "ADDRESS_CITY": lead.get("City", ""),
+            "ADDRESS_STATE": lead.get("State", ""),
+            "ADDRESS_COUNTRY": lead.get("Country", ""),
             "SOURCE_ID": "EMAIL",
             "STATUS_ID": PHASE_ID,
             "UTM_CAMPAIGN": "mail-campaign",
@@ -44,12 +44,12 @@ def track_click(lead_id):
     }
 
     try:
-        # Bitrix API Anfrage
         r = requests.post(BITRIX_WEBHOOK, json=payload)
-        r.raise_for_status()  # Wird eine Ausnahme auslösen, wenn etwas schief geht
-        print(f"Lead {lead_id} was successfully created in Bitrix!")
-    except requests.exceptions.RequestException as e:
-        print(f"Error in creating lead for {lead_id}: {e}")
+        r.raise_for_status()
+        response_json = r.json()
+        print(f"✅ Lead {lead_id} created in Bitrix. Response: {response_json}")
+    except Exception as e:
+        print(f"❌ Error while creating lead {lead_id}: {e}")
 
     return redirect(REDIRECT_URL)
 
