@@ -10,15 +10,16 @@ REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
 PHASE_ID = "UC_MID1CI"  # Mail Kampagne
 
 df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
+df.set_index("Apollo Contact Id", inplace=True)
+
 
 @app.route("/free-trial/<lead_id>")
 def track_click(lead_id):
-    if lead_id not in df['Apollo Contact Id'].values:
-        return redirect(REDIRECT_URL)
+    if lead_id not in df.index:
+        return redirect("https://rtkdata.com/product/free-trial-for-30-days/")
 
-    lead = df[df['Apollo Contact Id'] == lead_id].iloc[0]
-
-    lead_data = {
+    lead = df.loc[lead_id]
+    payload = {
         "fields": {
             "TITLE": f"Free Trial Lead: {lead.get('Company', '')}",
             "NAME": lead.get("First Name", ""),
@@ -37,12 +38,13 @@ def track_click(lead_id):
     }
 
     try:
-        response = requests.post(BITRIX_WEBHOOK, json=lead_data)
-        response.raise_for_status()
-        return redirect(REDIRECT_URL)
+        r = requests.post(BITRIX_WEBHOOK, json=payload)
+        r.raise_for_status()
     except Exception as e:
-        print(f"Error adding lead to Bitrix: {e}")
-        return redirect(REDIRECT_URL)
+        print(f"Error in creating lead for {lead_id}: {e}")
+
+    return redirect("https://rtkdata.com/product/free-trial-for-30-days/")
+
 
 if __name__ == "__main__":
     app.run(debug=False, port=5000, host="0.0.0.0")
