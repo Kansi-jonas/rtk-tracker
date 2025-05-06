@@ -6,7 +6,7 @@ import requests
 
 app = Flask(__name__)
 
-CSV_PATH = r"C:\Users\Jobec\OneDrive\Desktop\rtk-tracker\apollo-contacts-export.csv"
+CSV_PATH = "apollo-contacts-export.csv"
 BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/rxpcf8a0u3undrgc/crm.lead.add.json"
 REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
 PHASE_ID = "UC_MID1CI"  # Mail Kampagne
