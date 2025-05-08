@@ -10,7 +10,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 app = Flask(__name__)
 
 # === KONSTANTEN ===
-SERVICE_ACCOUNT_FILE = "rtk-tracker-sync-094bc2e32f0b.json"
+SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "/etc/secrets/rtk-tracker-sync-094bc2e32f0b.json")
 SHEET_NAME = "RTK Lead Tracking"
 WORKSHEET_NAME = "Sheet1"
 BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/hno2rrrti0b3z7w6/crm.lead.add.json"
