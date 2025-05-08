@@ -1,26 +1,37 @@
-# app.py
 import pandas as pd
 import requests
 from flask import Flask, redirect, request
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
 # === KONSTANTEN ===
-CSV_PATH = "apollo-contacts-export.csv"
+SERVICE_ACCOUNT_FILE = "rtk-tracker-sync-094bc2e32f0b.json"
+SHEET_NAME = "RTK Lead Tracking"
+WORKSHEET_NAME = "Sheet1"
 BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/hno2rrrti0b3z7w6/crm.lead.add.json"
 REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
 PHASE_ID = "UC_MID1CI"
 CREATED_TRACK_FILE = "created_leads.txt"
-MAX_AUTO_CLICK_AGE_SECONDS = 20  # Zeitfenster, in dem automatische Klicks ignoriert werden
+MAX_AUTO_CLICK_AGE_SECONDS = 20
 
-# === CSV laden und vorbereiten ===
-df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
-df.columns = df.columns.str.strip()
-df["Apollo Contact Id"] = df["Apollo Contact Id"].str.strip()
-df.set_index("Apollo Contact Id", inplace=True)
+# === Google Sheets ===
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
+client = gspread.authorize(creds)
+sheet = client.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
+
+def fetch_data():
+    data = sheet.get_all_records()
+    df = pd.DataFrame(data).fillna("")
+    df.columns = df.columns.str.strip()
+    df["Apollo Contact Id"] = df["Apollo Contact Id"].str.strip()
+    df.set_index("Apollo Contact Id", inplace=True)
+    return df
 
 # === Hilfsfunktion ===
 def safe_field(value):
@@ -31,10 +42,11 @@ def safe_field(value):
 def track_click(lead_id):
     lead_id = lead_id.strip()
 
-    # HEAD-Request ignorieren
     if request.method == "HEAD":
         print(f"🔁 HEAD ignoriert: {lead_id}")
         return "", 204
+
+    df = fetch_data()
 
     if lead_id not in df.index:
         print(f"❌ Lead-ID {lead_id} nicht gefunden.")
@@ -48,7 +60,7 @@ def track_click(lead_id):
 
     lead = df.loc[[lead_id]].iloc[0]
 
-    timestamp_str = lead.get("Timestamp", "").strip()
+    timestamp_str = lead.get("Send Timestamp", "").strip()
     if timestamp_str:
         try:
             timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
