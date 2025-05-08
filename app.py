@@ -4,6 +4,7 @@ import requests
 from flask import Flask, redirect, request
 import json
 import os
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -13,6 +14,7 @@ BITRIX_WEBHOOK = "https://kansi.bitrix24.de/rest/9/hno2rrrti0b3z7w6/crm.lead.add
 REDIRECT_URL = "https://rtkdata.com/product/free-trial-for-30-days/"
 PHASE_ID = "UC_MID1CI"
 CREATED_TRACK_FILE = "created_leads.txt"
+MAX_AUTO_CLICK_AGE_SECONDS = 20  # Zeitfenster, in dem automatische Klicks ignoriert werden
 
 # === CSV laden und vorbereiten ===
 df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
@@ -24,8 +26,8 @@ df.set_index("Apollo Contact Id", inplace=True)
 def safe_field(value):
     return value.strip() if isinstance(value, str) and value.strip() else None
 
-# === Haupt-Route ===
-@app.route("/free-trial/<lead_id>")
+# === Route /t/<lead_id> ===
+@app.route("/t/<lead_id>")
 def track_click(lead_id):
     lead_id = lead_id.strip()
 
@@ -44,8 +46,18 @@ def track_click(lead_id):
                 print(f"⚠️ Lead {lead_id} bereits erstellt.")
                 return redirect(REDIRECT_URL)
 
-    # Korrektur: Bei Duplikaten nur die erste Zeile verwenden
     lead = df.loc[[lead_id]].iloc[0]
+
+    timestamp_str = lead.get("Timestamp", "").strip()
+    if timestamp_str:
+        try:
+            timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+            age = datetime.utcnow() - timestamp
+            if age.total_seconds() < MAX_AUTO_CLICK_AGE_SECONDS:
+                print(f"🚫 Klick war zu schnell nach Versand: {lead_id} ({age.total_seconds()}s)")
+                return redirect(REDIRECT_URL)
+        except Exception as e:
+            print(f"⚠️ Ungültiger Timestamp bei {lead_id}: {e}")
 
     fields = {
         "TITLE": f"Free Trial Lead: {safe_field(lead.get('Company'))}",
