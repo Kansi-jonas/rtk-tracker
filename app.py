@@ -22,14 +22,12 @@ PHASE_ID = "UC_MID1CI"
 CREATED_TRACK_FILE = "created_leads.txt"
 MAX_AUTO_CLICK_AGE_SECONDS = 20
 
-# Google Sheets Verbindung herstellen
 def get_sheet():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
     client = gspread.authorize(creds)
     return client.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
 
-# Daten aus Google Sheet holen
 def fetch_data():
     sheet = get_sheet()
     df = pd.DataFrame(sheet.get_all_records()).fillna("")
@@ -41,8 +39,7 @@ def fetch_data():
 def safe_field(value):
     return value.strip() if isinstance(value, str) and value.strip() else None
 
-# Robuste Timestamp-Funktion
-def set_timestamp(email, column_name):
+def set_cell(email, column_name, value):
     try:
         sheet = get_sheet()
         records = sheet.get_all_records()
@@ -61,9 +58,8 @@ def set_timestamp(email, column_name):
                 break
 
         if row_number:
-            timestamp = datetime.now(timezone.utc).isoformat()
-            sheet.update_cell(row_number, col_number, timestamp)
-            print(f"🟢 {column_name} gesetzt für {email}")
+            sheet.update_cell(row_number, col_number, value)
+            print(f"🟢 {column_name} auf '{value}' gesetzt für {email}")
             return True
         else:
             print(f"🔴 E-Mail {email} nicht gefunden.")
@@ -134,7 +130,11 @@ def track_click(lead_id):
         with open(CREATED_TRACK_FILE, "a") as f:
             f.write(f"{lead_id}\n")
 
-        set_timestamp(lead_email, "Click Timestamp")
+        # NEU: Click Timestamp setzen
+        set_cell(lead_email, "Click Timestamp", datetime.now(timezone.utc).isoformat())
+
+        # NEU: Clicked auf TRUE setzen
+        set_cell(lead_email, "Clicked", "TRUE")
 
     except Exception as e:
         print(f"❌ Fehler beim Senden des Leads {lead_id}: {e}")
