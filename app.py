@@ -9,7 +9,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
-# === KONSTANTEN ===
 SERVICE_ACCOUNT_FILE = os.getenv(
     "SERVICE_ACCOUNT_FILE",
     "/etc/secrets/rtk-tracker-sync-094bc2e32f0b.json"
@@ -24,50 +23,58 @@ CREATED_TRACK_FILE = "created_leads.txt"
 MAX_AUTO_CLICK_AGE_SECONDS = 20
 
 # Google Sheets Verbindung herstellen
-def fetch_data():
+def get_sheet():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
     client = gspread.authorize(creds)
-    sheet = client.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
+    return client.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
 
-    data = sheet.get_all_records()
-    df = pd.DataFrame(data).fillna("")
+# Daten aus Google Sheet holen
+def fetch_data():
+    sheet = get_sheet()
+    df = pd.DataFrame(sheet.get_all_records()).fillna("")
     df.columns = df.columns.str.strip()
     df["Apollo Contact Id"] = df["Apollo Contact Id"].str.strip()
     df.set_index("Apollo Contact Id", inplace=True)
     return df
 
-# Hilfsfunktion für sichere Felder
 def safe_field(value):
     return value.strip() if isinstance(value, str) and value.strip() else None
 
-# Funktion zum Setzen des Click Timestamp
-def set_click_timestamp(lead_email):
+# Robuste Timestamp-Funktion
+def set_timestamp(email, column_name):
     try:
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
-        client = gspread.authorize(creds)
-        sheet = client.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
+        sheet = get_sheet()
+        records = sheet.get_all_records()
+        header_row = sheet.row_values(1)
 
-        cell = sheet.find(lead_email)
-        if cell:
-            header_row = sheet.row_values(1)
-            if "Click Timestamp" in header_row:
-                col_number = header_row.index("Click Timestamp") + 1
-                timestamp = datetime.now(timezone.utc).isoformat()
-                sheet.update_cell(cell.row, col_number, timestamp)
-                print(f"🟢 Click Timestamp gesetzt für {lead_email}")
-            else:
-                print("🔴 Spalte 'Click Timestamp' nicht gefunden.")
+        col_number = header_row.index(column_name) + 1 if column_name in header_row else None
+        if col_number is None:
+            print(f"🔴 Spalte '{column_name}' nicht gefunden.")
+            return False
+
+        row_number = None
+        for idx, record in enumerate(records, start=2):
+            record_email = record.get("Email", "").strip().lower()
+            if record_email == email.strip().lower():
+                row_number = idx
+                break
+
+        if row_number:
+            timestamp = datetime.now(timezone.utc).isoformat()
+            sheet.update_cell(row_number, col_number, timestamp)
+            print(f"🟢 {column_name} gesetzt für {email}")
+            return True
         else:
-            print(f"🔴 E-Mail {lead_email} nicht gefunden, Click Timestamp nicht gesetzt.")
+            print(f"🔴 E-Mail {email} nicht gefunden.")
     except Exception as e:
-        print(f"⚠️ Fehler beim Setzen des Click Timestamp: {e}")
+        print(f"⚠️ Fehler beim Setzen von {column_name}: {e}")
 
-# Haupt-Route
+    return False
+
 @app.route("/t/<lead_id>")
 def track_click(lead_id):
-    df = fetch_data()  # Lädt Daten bei jedem Klick aktuell ein
+    df = fetch_data()
 
     if request.method == "HEAD":
         print(f"🔁 HEAD ignoriert: {lead_id}")
@@ -114,28 +121,20 @@ def track_click(lead_id):
 
     payload = {"fields": {k: v for k, v in fields.items() if v not in [None, "", []]}}
 
-    if not payload["fields"].get("NAME") or not payload["fields"].get("LAST_NAME") or not payload["fields"].get("COMPANY_TITLE"):
-        print(f"❌ Unvollständige Felder für {lead_id}.")
+    lead_email = safe_field(lead.get("Email"))
+    if not lead_email:
+        print("🔴 Keine E-Mail gefunden, Click Timestamp nicht möglich.")
         return redirect(REDIRECT_URL)
-
-    print("📤 Sende Lead an Bitrix:")
-    print(json.dumps(payload, indent=2))
 
     try:
         response = requests.post(BITRIX_WEBHOOK, json=payload)
-        print("🔄 Bitrix-Antwort:", response.text)
         response.raise_for_status()
         print(f"✅ Lead {lead_id} erfolgreich angelegt.")
 
         with open(CREATED_TRACK_FILE, "a") as f:
             f.write(f"{lead_id}\n")
 
-        # Jetzt zusätzlich Click Timestamp setzen
-        lead_email = safe_field(lead.get("Email"))
-        if lead_email:
-            set_click_timestamp(lead_email)
-        else:
-            print("🔴 Keine E-Mail gefunden, Click Timestamp nicht gesetzt.")
+        set_timestamp(lead_email, "Click Timestamp")
 
     except Exception as e:
         print(f"❌ Fehler beim Senden des Leads {lead_id}: {e}")
